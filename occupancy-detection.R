@@ -117,14 +117,6 @@ plot_missing(occupancy_detection_data)
 # Bar Chart by frequency: Occupation 
 plot_bar(occupancy_detection_data)
 
-# occupancy_detection_data %>%
-#   group_by(Occupancy) %>%
-#   arrange(desc(Occupancy)) %>%
-#   ggplot(aes(Occupancy)) +
-#   geom_bar(stat = "count", fill = "darkgrey") +
-#   scale_x_discrete(labels = c("Not Occupied", "Occupied")) +
-#   coord_flip()
-
 ## QQ plot
 occupancy_detection_data %>%
   plot_qq()
@@ -138,16 +130,6 @@ plot_correlation(type = "all")
 # Light and Temprature also have significant correlation.                                      #
 ################################################################################################
 
-# # Scatter plot matrix 
-# # occupancy_detection_data %>%
-# pairs.panels(occupancy_detection_data[, 2:8],
-#              bg = c("green", "yellow")[unclass(occupancy_detection_data$Occupancy)],
-#              pch = 22,
-#              method = "pearson",
-#              hist.col = "steelblue",
-#              density = TRUE,
-#              ellipses = TRUE) #,
-#             # stars = TRUE)
 
 ################################################################################################
 # We will now use Recursive Feature Elimination for feature selection. The following code      #
@@ -168,25 +150,14 @@ print(rfe_results)
 # The RFE has selected Light, Temperature, CO2, Weekday, Humidity as the top features. This    #
 # would make sense since we have already seen from correlation analysis that Humidity and      #
 # Humidity ratio are highly correlated. Using all 6 features does bring a small improvement    #
-# in the accuracy. While RFE recommends using all 6 features, We'll be dropping HumidityRatio  #
-# for further processing                                                                       #  
+# in the accuracy. While RFE recommends this, We'll be dropping HumidityRatio for further      #
+# processing.                                                                                  #
 ################################################################################################
 
 predictors(rfe_results)
 
 # Plotting the results
 plot(rfe_results, type = c("g", "o"))
-
-# # Prepare training control
-# control_importance <- trainControl(method = "repeatedcv", number = 10, repeats = 3)
-# 
-# # Train the model
-# model_importance <- train(Occupancy ~ . -Date, data = occupancy_detection_data,
-#                           method = "lvq", preProcess = "scale", trControl = control_importance)
-# summary(model_importance)
-# # Identify importance of features
-# importance = varImp(model_importance, scale = FALSE)
-# 
 
 # Splitting the data set for training
 set.seed(1, sample.kind = "Rounding")
@@ -276,110 +247,3 @@ occupancy_preds <- predict(best_model, occupancy_test)
 # Final accuracy from the best model in our list of models
 confusionMatrix(as.factor(occupancy_preds), occupancy_test$Occupancy)$overall["Accuracy"]
 
-####################################### Project code ends here #################################
-fits[[12]]$method
-# Apply majority vote technique
-votes <- mean(occupancy_preds == "Occupied")
-occupancy_preds <- ifelse(votes > 0.5, "Occupied", "Not_Occupied")
-
-final_accuracy <- mean(occupancy_preds == occupancy_test$Occupancy)
-final_accuracy
-
-
-
-
-
-# Adding a weekday column
-# occupancy_detection_data$Weekday <- lubridate::wday(occupancy_detection_data$Date)
-
-if(!require(caretEnsemble)) install.packages("caretEnsemble", repos = "http://cran.us.r-project.org")
-
-# class(results)
-# Accuracy <- sapply(length(models), function(i) {
-#   confusionMatrix(factor(y_hats[,i]), occupancy_test$Occupancy)$overall["Accuracy"]
-# })
-# mean(Accuracy)
-
-
-################################################################################################
-# As we see "knn", "C5.0", "rf", "gbm", and "rpart" have relatively low correlation (< 0.75).  #
-# So we'll use these model for stacking ensemble method to try and improve the accuracy of our #
-# model. We are essentially coming up with a stacked model to apply to our test set.           #                                                            #
-################################################################################################
-
-# Create submodels
-stack_control <- trainControl(method = "adaptive_cv", savePredictions = "final", classProbs=TRUE)
-best_models <- c("knn", "C5.0", "rf", "gbm", "rpart")
-#number = 10, #repeats = 3,
-
-set.seed(1, sample.kind = "Rounding")
-best_fits <- caretList(Occupancy ~ .-Date-HumidityRatio,  data = occupancy_train, 
-                       trControl = stack_control, methodList = best_models)
-
-stack_results <- resamples(best_fits)
-summary(stack_results)
-modelCor(stack_results)
-
-set.seed(1, sample.kind = "Rounding")
-index_stack = 
-
-# Validating the correlation
-splom(stack_results)
-dotplot(stack_results)
-
-################################################################################################
-# Now that we have the 5 best models trained, let's move on to stacking. We'll use glm for     #
-# this purpose. We do see 0.77 correlation between rpart and gbm, but let's move on for now.   #
-# Our best model currently is knn which is giving 99.1%                                        #  
-################################################################################################
-set.seed(1, sample.kind = "Rounding")
-stack_glm <- caretStack(best_fits, method = "glm", metric = metric, trControl = stack_control,
-                        index = index_stack)
-print(stack_glm)
-
-################################################################################################
-# Stacking with glm method has improved our accuracy to 99.4%, let's now try stacking with the #
-# Random Forest method.                                                                        #  
-################################################################################################
-set.seed(1, sample.kind = "Rounding")
-stack_rf <- caretStack(best_fits, method = "rf", metric = metric, trControl = stack_control)
-print(stack_rf)
-
-################################################################################################
-# This has further improved our model and it now has 99.5 accuracy. But the trade off is the   #
-# time taken to run the model. Now let's use this stacked random forest model on our test set  #
-# and see how it performs.                                                                     #                                                            #  
-################################################################################################
-# Continous variables
-
-stack_predict <- predict(stack_glm, occupancy_test)
-confusionMatrix(stack_predict, occupancy_test$Occupancy)$overall["Accuracy"]
-mean(stack_predict == occupancy_test$Occupancy)
-
-plot_histogram(occupancy_detection_data)
-plot_density(occupancy_detection_data, fill = "red")
-plot_histogram(combined_files)
-plot_density(combined_files)
-plot_correlation(combined_files, type = 'continuous')#, 'Review.Date')
-plot_boxplot(occupancy_detection_data) #, type = 'continuous')
-plot_correlation(combined_files, type = 'continuous')
-plot_intro(combined_files)
-plot_boxplot(occupancy_detection_data, by = "Occupancy")
-plot_scatterplot(combined_files, by = "Light")
-create_report(combined_files)
-
-introduce(combined_files)
-## Do not run
-# pairs(combined_files[1:14], 
-#       main = "Anderson's Iris combined_files -- 3 species",
-#       pch = 21, 
-#       bg = c("#1b9e77", "#d95f02", "#7570b3")[unclass(combined_files$income)])
-x <- combined_files[, 1:6]
-x
-y <- combined_files[, 7]
-par("mar")
-par(mar=c(1,1,1,1))
-par(mfrow=c(1,6))
-for(i in 1:6) {
-  boxplot(x[,i], main=names(combined_files)[i])
-}
